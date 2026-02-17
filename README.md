@@ -20,17 +20,27 @@
 
 → [查看完整教程目录](./docs/lessons/README.md)
 
-### 已完成
+### Part 0: 概念入门
 
-- **第一课**：[选型之路 — 从 SDK 到 CLI](./docs/lessons/01-sdk-to-cli.md)
-  - 为什么官方 SDK 行不通？
-  - 决策逻辑链完整还原
+- **第零课**：[AI Agent 概念演进](./docs/lessons/00-concepts-evolution.md) — Function Call → MCP → Skills → Agent 怎么来的？
+
+### Part 1: 选型与架构
+
+- **第一课**：[选型之路 — 从 SDK 到 CLI](./docs/lessons/01-sdk-to-cli.md) — 为什么 SDK 方案行不通？
   - [课后作业](./docs/lessons/01-homework.md)：动手写最小可运行示例
+- **第二课**：[从玩具到生产 — 一场辩论赛引发的连环惨案](./docs/lessons/02-cli-engineering.md) — stderr 教训 + Redis 隔离 + 幻觉
+  - [课后作业](./docs/lessons/02-homework.md)：CLI 工程化自检提示词
+- **第三课**：[驯化 AI 的元规则 — 为什么 WHY 比 WHAT 重要](./docs/lessons/03-meta-rules.md) — 从 AI 弱点出发设计协作规范
+
+### Part 2: 协作机制
+
+- **第四课**：[多猫路由 — 当 AI 开始互相 @](./docs/lessons/04-a2a-routing.md) — @mention 怎么分发？两条路径的灾难
+- **第五课**：[MCP 回传 — 让猫猫主动说话](./docs/lessons/05-mcp-callback.md) — 被动响应不够，猫怎么主动发言？
+  - [课后作业](./docs/lessons/05-homework.md)：搭建最小 MCP 回传系统
 
 ### 即将推出
 
-- 第二课：从玩具到生产 — CLI 调用的工程化
-- 第三课：MCP 回传机制 — 让猫猫主动说话
+- 第六课：隔离的代价 — 从内存到 Redis 到 307→15 keys
 - ...更多
 
 ## 适合谁
