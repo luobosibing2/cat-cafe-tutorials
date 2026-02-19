@@ -69,8 +69,9 @@ claudeArgs.push('-p', escapeShellArg(prompt));
 claudeArgs.push('--output-format', 'stream-json', '--verbose');
 
 // 如果有 session ID，添加 --resume 参数
+// 注意：--resume 参数值不需要额外的引号包裹，因为 session ID 本身不包含空格
 if (sessionId) {
-  claudeArgs.push('--resume', escapeShellArg(sessionId));
+  claudeArgs.push('--resume', sessionId);
 }
 
 // 打印实际执行的命令
@@ -82,8 +83,12 @@ console.log(`🔧 Executing: ${fullCommand}`);
 const shell = isWindows ? 'cmd.exe' : '/bin/sh';
 const shellArgs = isWindows ? ['/c', fullCommand] : ['-c', fullCommand];
 
+// 创建不包含 CLAUDECODE 的环境变量
+const envWithoutClaudeCode = { ...process.env };
+delete envWithoutClaudeCode['CLAUDECODE'];
+
 const claude = useMock ? createMockClaude(sessionId) : spawn(shell, shellArgs, {
-  env: process.env,
+  env: envWithoutClaudeCode,
   stdio: ['ignore', 'pipe', 'pipe']
 });
 
@@ -150,6 +155,9 @@ rl.on('line', (line) => {
           }
         } else if (event.subtype === 'error') {
           console.error(`\n  [Error: ${event.error?.message || 'Unknown error'}]`);
+          if (event.errors && event.errors.length > 0) {
+            console.error(`  [Details: ${event.errors.join(', ')}]`);
+          }
         }
         break;
     }

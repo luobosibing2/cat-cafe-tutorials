@@ -96,7 +96,54 @@ To bypass this check, unset the CLAUDECODE environment variable.
 Claude CLI 检测到 `CLAUDECODE` 环境变量，拒绝在嵌套会话中运行。
 
 **解决：**
-需要在 VSCode 外部的独立终端中测试。
+需要从环境变量中移除 `CLAUDECODE`。在脚本中：
+
+```javascript
+// 创建不包含 CLAUDECODE 的环境变量
+const envWithoutClaudeCode = { ...process.env };
+delete envWithoutClaudeCode['CLAUDECODE'];
+
+const claude = spawn(shell, shellArgs, {
+  env: envWithoutClaudeCode,
+  stdio: ['ignore', 'pipe', 'pipe']
+});
+```
+
+这样可以在任何终端（包括 VSCode 集成终端）中正常运行。
+
+---
+
+### 问题 4: Session ID 参数转义错误
+
+**现象：**
+尝试恢复 session 时报错：
+```
+Error: --resume requires a valid session ID when used with --print. Usage: claude -p --resume <session-id>. Session IDs must be in UUID format (e.g., 550e8400-e29b-41d4-a716-446655440000). Provided value ""33a261e1-c5de-48c5-9dd7-aa6b6a12a932"" is not a valid UUID
+```
+
+注意错误信息中有**两层双引号**。
+
+**原因：**
+代码中对 `--resume` 的 session ID 也使用了 `escapeShellArg()` 函数进行转义，导致实际命令变成了：
+```bash
+claude -p "prompt" --resume "session-id"
+```
+
+在 cmd 中，这被解析为 `"\"session-id\""`，即双层引号。
+
+**解决：**
+session ID 本身不包含空格，不需要转义。只有 prompt 这种可能包含空格的参数才需要转义：
+
+```javascript
+const claudeArgs = [];
+claudeArgs.push('-p', escapeShellArg(prompt));  // 需要转义
+claudeArgs.push('--output-format', 'stream-json', '--verbose');
+
+// Session ID 不需要转义
+if (sessionId) {
+  claudeArgs.push('--resume', sessionId);  // 不加引号
+}
+```
 
 ---
 
