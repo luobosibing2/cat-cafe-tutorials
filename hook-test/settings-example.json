@@ -1,0 +1,53 @@
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "your-token-here",
+    "ANTHROPIC_BASE_URL": "your-api-url-here",
+    "API_TIMEOUT_MS": "3000000",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Write",
+      "Read",
+      "Edit",
+      "Glob",
+      "Grep"
+    ]
+  },
+  "enabledPlugins": {},
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "permission",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"C:\\Users\\15962\\.claude\\show-notification.ps1\" -Title \"权限请求\" -Message \"Claude Code 需要您的批准才能继续执行\" -Icon \"Question\""
+          }
+        ]
+      },
+      {
+        "matcher": "idle",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"C:\\Users\\15962\\.claude\\show-notification.ps1\" -Title \"等待输入\" -Message \"Claude Code 正在等待您的指令\" -Icon \"Information\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"C:\\Users\\15962\\.claude\\show-notification.ps1\" -Title \"任务完成\" -Message \"Claude Code 已完成任务\" -Icon \"Information\""
+          }
+        ]
+      }
+    ]
+  }
+}
