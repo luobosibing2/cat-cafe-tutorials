@@ -1,308 +1,315 @@
-# 代码开发标准
+# 代码开发标准 - 核心原则
 
 > 基于《第二课：从玩具到生产 - CLI 工程化》的代码开发规范
 >
-> **版本**: v1.0
+> **版本**: v2.0
 > **更新日期**: 2026-02-20
+> **适用范围**: 语言无关的核心原则
 
 ---
 
-## 📋 概述
+## 📋 核心理念
 
-本文档定义了项目中所有 CLI 子进程调用代码必须遵循的开发标准，确保代码达到生产级别的可靠性和稳定性。
+本文档提取的是**语言无关的核心原则**，适用于：
+- 任何调用外部命令行工具的代码
+- 任何涉及流式输出处理的代码
+- 任何需要管理子进程的代码
+- 任何需要长时间运行任务的代码
 
-**适用范围**：
-- 所有使用 child_process/spawn 调用 CLI 工具的代码
-- 涉及流式输出（stdout/stderr）处理的代码
-- 需要长时间运行的子进程管理代码
-
-**语言无关性**：
-本标准基于通用的 CLI 调用原理，适用于 Node.js、Python、Go、Rust 等所有语言。
-
----
-
-## ✅ 必须满足的标准
-
-### 1. stderr 活跃信号
-
-**标准**：
-超时检测必须同时监听 stdout 和 stderr，将两个流都视为活跃信号。
-
-**原因**：
-CLI 工具在 thinking、工具调用、进度汇报时，通常输出到 stderr，不是 stdout。
-
-**错误示例**：
-```javascript
-// ❌ 只监听 stdout - 会误判超时
-child.stdout.on('data', () => { lastActivity = Date.now(); });
-```
-
-**正确示例**：
-```javascript
-// ✅ 同时监听 stdout 和 stderr
-child.stdout.on('data', () => { lastActivity = Date.now(); });
-child.stderr.on('data', () => { lastActivity = Date.now(); });
-```
-
-**验收标准**：
-- [ ] 超时检测同时监听 stdout 和 stderr
-- [ ] stderr 数据到达时也刷新超时计时器
+**不局限于**：
+- Node.js child_process
+- Python subprocess
+- Go exec
+- 任何特定语言的实现细节
 
 ---
 
-### 2. 超时设置
+## 🎯 六大核心原则
 
-**标准**：
-超时时间必须可配置，并且能够适应不同复杂度的任务。
+### 原则 1：所有输出流都是活跃信号
 
-**默认值**：
-- 简单聊天任务：2-5 分钟
-- 中等任务：10 分钟
-- 复杂任务（代码分析、长篇写作）：30 分钟
+**核心精神**：
+不要假设只有"标准输出"才是程序在工作的证明。错误输出、调试输出、进度信息也都是程序在工作的证据。
 
-**错误示例**：
-```javascript
-// ❌ 硬编码超时时间
-const TIMEOUT_MS = 5 * 60 * 1000; // 5 分钟，无法调整
+**问题场景**：
+很多 CLI 工具在思考过程（thinking）、调用工具、显示进度时，会将信息输出到 stderr 而不是 stdout。如果超时检测只看 stdout，就会误判为"卡死"。
+
+**抽象实现**：
+```
+┌─────────────────────────────────────────────────────────┐
+│              输出流分类                          │
+├─────────────────────────────────────────────────────────┤
+│                                                 │
+│   stdout  ──→ 最终结果、结构化数据            │
+│                                                 │
+│   stderr  ──→ 思考过程、进度、调试信息          │
+│             ──→ 工具调用状态                      │
+│             ──→ 中间状态更新                      │
+│                                                 │
+└─────────────────────────────────────────────────────────┘
+
+⚠️ 警惕：只监听 stdout = 误判超时 = 暴力 kill
 ```
 
-**正确示例**：
-```javascript
-// ✅ 通过环境变量配置
-const TIMEOUT_MS = parseInt(process.env.CLAUDE_TIMEOUT_MS, 10) || 10 * 60 * 1000;
-```
+**验收原则**：
+- [ ] 超时/活跃检测同时监听所有输出流
+- [ ] 任何流有数据到达都视为"程序在工作"
 
-**验收标准**：
-- [ ] 超时时间可以通过环境变量配置
-- [ ] 有合理的默认值（建议 10 分钟）
-- [ ] 文档中说明如何配置超时时间
+---
+
+### 原则 2：超时必须可配置
+
+**核心精神**：
+不同的任务需要不同的超时时间，不能硬编码。让调用者根据场景调整。
+
+**问题场景**：
+- 简单任务（比如问"1+1="）- 5 分钟超时浪费资源
+- 复杂任务（比如代码分析）- 5 分钟超时直接被 kill，浪费工作
+
+**抽象实现**：
+```
+超时时间 = 环境变量配置 OR 合理默认值
+
+默认值建议：
+  - 简单任务：2-5 分钟
+  - 中等任务：10 分钟
+  - 复杂任务：30 分钟
+```
 
 **优雅关机**：
-超时后必须先发送 SIGTERM，等待 5 秒后再发送 SIGKILL：
-
-```javascript
-child.kill('SIGTERM');
-setTimeout(() => {
-  if (child && !child.killed) {
-    child.kill('SIGKILL');
-  }
-}, 5000);
 ```
+第一阶段：礼貌请求退出（SIGTERM/TERM）
+    ↓
+    等待 N 秒（建议 5 秒）
+    ↓
+第二阶段：强制杀死（SIGKILL/KILL）
+```
+
+**验收原则**：
+- [ ] 超时时间可以通过配置设置
+- [ ] 有合理的默认值
+- [ ] 超时后先礼貌退出，再强制杀死
+- [ ] 给程序足够的时间清理资源
 
 ---
 
-### 3. 进程生命周期管理
+### 原则 3：完整覆盖所有退出路径
 
-**标准**：
-必须正确处理进程启动、运行、退出的完整生命周期，防止僵尸进程。
+**核心精神**：
+程序可能通过多种方式退出，必须在每个退出点都清理资源。不要依赖"正常退出"一定会发生。
 
-**必须处理的信号**：
-- `SIGTERM` - 终止信号
-- `SIGINT` - 中断信号（Ctrl+C）
-- `uncaughtException` - 未捕获异常
-- `unhandledRejection` - 未处理的 Promise 拒绝
+**问题场景**：
+- 用户按 Ctrl+C
+- 系统发送 SIGTERM
+- 代码抛出未捕获异常
+- 子进程崩溃
+- 父进程异常退出
 
-**正确示例**：
-```javascript
-function gracefulShutdown() {
-  console.log('\n🛑 Shutting down...');
-  if (timeoutTimer) clearTimeout(timeoutTimer);
-  if (rl) rl.close();
-  if (child && !child.killed) {
-    child.kill('SIGTERM');
-    setTimeout(() => {
-      if (child && !child.killed) child.kill('SIGKILL');
-    }, 5000);
-  }
-  process.exit(0);
-}
+任何一种情况，都应该清理：
+- 停止超时定时器
+- 关闭流和监听器
+- 终止子进程
+- 释放文件句柄
+- 断开网络连接
 
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
-process.on('uncaughtException', gracefulShutdown);
-process.on('unhandledRejection', gracefulShutdown);
+**抽象实现**：
+```
+所有可能的退出路径：
+    ↓
+    用户中断（SIGINT）
+    系统终止（SIGTERM）
+    未捕获异常
+    未处理 Promise 拒绝
+    子进程崩溃
+    父进程崩溃
+    ↓
+    统一清理函数 cleanup()
+    ↓
+    停止定时器
+    关闭流
+    终止子进程
+    释放资源
 ```
 
-**验收标准**：
-- [ ] 处理 SIGTERM 信号
-- [ ] 处理 SIGINT 信号
-- [ ] 处理未捕获异常
-- [ ] 处理未处理的 Promise 拒绝
-- [ ] 两阶段关机（先 SIGTERM，后 SIGKILL）
-- [ ] 清理所有资源（定时器、事件监听器、流等）
+**验收原则**：
+- [ ] 所有退出信号都有处理
+- [ ] 异常退出也会触发清理
+- [ ] 子进程崩溃也会清理
+- [ ] 统一的清理逻辑
 
 ---
 
-### 4. 流式解析容错
+### 原则 4：解析失败不应该导致整体失败
 
-**标准**：
-NDJSON 流式解析必须有容错机制，不能因为单行解析失败导致整个任务失败。
+**核心精神**：
+流式数据（比如 NDJSON）中可能会出现各种格式问题，单行失败不应该让整个任务崩溃。容错是基础要求。
 
-**正确示例**：
-```javascript
-rl.on('line', (line) => {
-  try {
-    const event = JSON.parse(line);
-    // ... 处理事件
-  } catch (err) {
-    // ✅ 忽略无法解析的行（可能是空行、不完整行）
-    // console.error(`Failed to parse line: ${line}`);
-  }
-});
+**问题场景**：
+- 空行
+- 不完整的 JSON（被截断）
+- 多个 JSON 在一个 chunk 里（粘包）
+- 非结构化的日志输出
+
+**抽象实现**：
+```
+输入流
+    ↓
+逐行/逐块读取（line-based / chunk-based）
+    ↓
+尝试解析
+    ↓
+    成功 ──→ 处理数据
+    失败 ──→ 记录日志（可选）─→ 继续处理下一个
 ```
 
-**验收标准**：
-- [ ] 使用 readline 等工具逐行读取（自动处理换行符）
-- [ ] JSON 解析有 try-catch 容错
-- [ ] 不忽略 stderr 输出（可能包含重要信息）
-- [ ] 处理粘包情况（readline 自动处理）
+**容错策略**：
+- 单行解析失败 → 跳过，继续下一行
+- 空行 → 忽略
+- 不完整行 → 记录，继续
+
+**验收原则**：
+- [ ] 解析失败有 try-catch 容错
+- [ ] 不会因为单行失败导致整体崩溃
+- [ ] 有日志记录解析失败（可选）
+- [ ] 能处理常见的格式问题（空行、截断、粘包）
 
 ---
 
-### 5. 环境隔离
+### 原则 5：开发和生产环境必须隔离
 
-**标准**：
-开发和生产环境必须完全隔离，防止开发代码连接生产资源。
+**核心精神**：
+防止开发代码误操作生产环境，这是生产事故的主要来源之一。系统必须在设计层面隔离不同环境。
 
-**隔离要求**：
-1. 数据库隔离：开发用开发数据库，生产用生产数据库
-2. Redis 隔离：开发用 6398，生产用 6399
-3. 配置检查：开发环境连接生产资源时发出警告
+**问题场景**：
+- 开发代码连接生产数据库 → 删错了数据
+- 开发代码连接生产 Redis → 缓存污染
+- 配置文件混用 → 难以追踪问题
 
-**正确示例**：
-```javascript
-const NODE_ENV = process.env.NODE_ENV || 'development';
-const REDIS_PORT = process.env.REDIS_PORT || (NODE_ENV === 'production' ? '6399' : '6398');
-
-// 环境隔离检查
-if (process.env.NODE_ENV === 'development') {
-  if (REDIS_PORT === '6399') {
-    console.warn('⚠️  WARNING: Development environment connecting to production Redis (port 6399)');
-    console.warn('   Please use REDIS_PORT=6398 for development');
-  }
-
-  if (process.env.DATABASE_URL && process.env.DATABASE_URL.includes('production')) {
-    console.warn('⚠️  WARNING: Development environment connecting to production database');
-    console.warn('   DATABASE_URL should point to dev instance');
-  }
-}
-
-// 使用隔离的环境变量
-const isolatedEnv = { ...process.env };
-delete isolatedEnv['CLAUDECODE'];  // 移除可能干扰的变量
-isolatedEnv.REDIS_PORT = REDIS_PORT;
-isolatedEnv.NODE_ENV = NODE_ENV;
-
-const child = spawn(command, args, {
-  env: isolatedEnv,
-  stdio: ['ignore', 'pipe', 'pipe']
-});
+**抽象实现**：
+```
+环境标识（NODE_ENV / ENV）
+    ↓
+生产环境 → 生产数据库、生产缓存、生产配置
+开发环境 → 开发数据库、开发缓存、开发配置
+测试环境 → 测试数据库、测试缓存、测试配置
 ```
 
-**验收标准**：
-- [ ] 开发环境和生产环境使用不同的数据库
-- [ ] 开发环境连接生产资源时发出警告
-- [ ] 环境变量配置清晰（有文档说明）
-- [ ] Worktree 开发使用独立的开发数据库
+**防护机制**：
+1. **端口隔离**：不同环境使用不同端口
+   - 生产：6399 / 5432
+   - 开发：6398 / 5433
+   - 测试：6397 / 5434
 
-**端口约定**：
-- 生产 Redis：6399
-- 开发 Redis：6398
+2. **URL 隔离**：数据库名、主机名不同
+   - 生产：`prod-db.example.com`
+   - 开发：`dev-db.example.com`
+
+3. **配置检查**：检测误连
+   ```
+   if (环境 == 'development' && 配置包含 'production')
+     → 发出警告！
+   ```
+
+4. **Worktree 隔离**：分支开发使用独立环境
+   - 主分支 → 可以用生产配置
+   - 功能分支 → 必须用开发配置
+
+**验收原则**：
+- [ ] 不同环境使用不同的数据库/缓存
+- [ ] 开发环境连接生产资源时有警告
+- [ ] 配置清晰，容易区分环境
+- [ ] 分支开发强制使用开发配置
 
 ---
 
-### 6. 错误处理
+### 原则 6：错误处理要有重试和友好提示
 
-**标准**：
-必须有完善的错误处理机制，包括重试、日志和用户友好的错误信息。
+**核心精神**：
+网络波动、临时故障是常态。系统必须有重试机制，并且给用户清晰的错误信息。
 
-**错误处理要求**：
-1. **重试机制**：临时错误自动重试
-2. **指数退避**：重试延迟逐渐增加（1s, 2s, 5s）
-3. **错误日志**：输出足够的调试信息
-4. **用户友好**：错误信息清晰，包含解决建议
+**问题场景**：
+- 网络临时不稳定
+- 服务短暂不可用
+- 限流触发
+- 临时资源不足
 
-**正确示例**：
-```javascript
-// 重试配置
-const MAX_RETRIES = parseInt(process.env.CLAUDE_MAX_RETRIES, 10) || 3;
-const RETRY_DELAYS = [1000, 2000, 5000]; // 1s, 2s, 5s
-
-async function executeWithRetry() {
-  let retryCount = 0;
-
-  while (retryCount <= MAX_RETRIES) {
-    try {
-      await executeSingle();
-      return; // 成功则返回
-    } catch (err) {
-      if (retryCount >= MAX_RETRIES) {
-        console.error(`\n❌ Max retries (${MAX_RETRIES}) exceeded`);
-        throw err;
-      }
-
-      retryCount++;
-      const delay = RETRY_DELAYS[Math.min(retryCount - 1, RETRY_DELAYS.length - 1)];
-      console.log(`\n🔄 Retrying (${retryCount}/${MAX_RETRIES}) in ${delay}ms...`);
-      console.log(`   Error: ${err.message}`);
-
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-}
-
-// spawn 错误处理
-child.on('error', (err) => {
-  console.error(`\n❌ Failed to spawn process:`);
-  console.error(`   Error: ${err.message}`);
-  console.error(`   Code: ${err.code}`);
-  console.error(`\n💡 Troubleshooting tips:`);
-  console.error(`   1. Make sure the CLI is installed`);
-  console.error(`   2. Try running 'cli --version'`);
-  console.error(`   3. Check if PATH is set correctly`);
-  process.exit(1);
-});
+**抽象实现**：
+```
+执行任务
+    ↓
+    失败？
+    ├─ 否 → 完成
+    └─ 是 → 还有重试次数？
+           ├─ 是 → 等待（指数退避）→ 重试
+           └─ 否 → 记录详细日志 → 抛出友好错误
 ```
 
-**验收标准**：
-- [ ] 有重试机制（默认至少 3 次）
+**重试策略**：
+- **指数退避**：1s, 2s, 5s, 10s, 20s
+  - 避免立即重试（可能还是失败）
+  - 给服务恢复时间
+  - 避免雪崩（所有客户端同时重试）
+
+- **最大重试次数**：建议 3-5 次
+  - 太少：临时故障无法恢复
+  - 太多：浪费时间
+
+**错误信息原则**：
+```
+❌ 错误信息 = 问题说明 + 原因 + 建议解决方式
+
+示例：
+  "Failed to connect to database:
+   - Error: Connection refused
+   - Possible causes:
+     1. Database is not running
+     2. Wrong port (expected 5432)
+   - Suggestions:
+     1. Check if PostgreSQL is running
+     2. Verify DATABASE_URL configuration
+     3. Try: psql -h localhost -p 5432"
+```
+
+**验收原则**：
+- [ ] 有重试机制（至少 3 次）
 - [ ] 重试延迟使用指数退避
-- [ ] spawn 错误有清晰的错误信息和解决建议
-- [ ] 进程异常退出有适当的处理
-- [ ] 错误信息包含足够调试信息
+- [ ] 有最大重试次数限制
+- [ ] 错误信息包含问题说明
+- [ ] 错误信息包含解决建议
+- [ ] 记录足够的调试信息
 
 ---
 
-## 🧪 自检清单
+## 🧪 语言无关的检查清单
 
-任何新的 CLI 调用代码在合并前必须通过以下检查：
+任何调用外部命令/管理子进程的代码，在合并前必须通过以下检查：
 
-### 基础检查
-- [ ] 同时监听 stdout 和 stderr
+### 基础功能
+- [ ] 同时监听所有输出流（不仅是 stdout）
 - [ ] 超时检测功能完善
 - [ ] 超时时间可配置
-- [ ] 有两阶段关机（SIGTERM + SIGKILL）
+- [ ] 超时后先礼貌退出再强制杀死
 
-### 生命周期检查
-- [ ] 处理 SIGTERM 信号
-- [ ] 处理 SIGINT 信号
-- [ ] 处理未捕获异常
-- [ ] 处理未处理的 Promise 拒绝
-- [ ] 清理所有资源（定时器、流等）
+### 生命周期管理
+- [ ] 处理用户中断信号（Ctrl+C）
+- [ ] 处理系统终止信号
+- [ ] 处理未捕获的异常
+- [ ] 处理未处理的异步错误
+- [ ] 所有退出路径都清理资源
 
-### 解析检查
-- [ ] NDJSON 解析有容错
-- [ ] 使用 readline 逐行读取
-- [ ] 不忽略 stderr 输出
+### 流式处理
+- [ ] 解析失败有容错
+- [ ] 使用逐行/逐块处理
+- [ ] 不忽略错误输出流
 
-### 环境检查
+### 环境隔离
 - [ ] 开发/生产环境隔离
 - [ ] 误连生产资源有警告
-- [ ] 环境变量配置清晰
+- [ ] 配置清晰易区分
 
-### 错误处理检查
+### 错误处理
 - [ ] 有重试机制
-- [ ] 重试使用指数退避
+- [ ] 重试使用退避策略
 - [ ] 错误信息清晰友好
 - [ ] 包含调试建议
 
@@ -310,42 +317,62 @@ child.on('error', (err) => {
 
 ## 📊 验收标准
 
-| 检查项 | 状态 |
-|--------|------|
-| stderr 和 stdout 都被监听 | ✅ |
-| 超时时间可配置且合理 | ✅ |
-| 进程生命周期管理完善 | ✅ |
-| NDJSON 解析有容错 | ✅ |
-| 开发/生产环境隔离 | ✅ |
-| 错误处理完善 | ✅ |
+| 核心原则 | 验收 |
+|----------|------|
+| 原则 1：所有输出流都是活跃信号 | ✅ 同时监听所有流，误判超时 |
+| 原则 2：超时必须可配置 | ✅ 可配置，默认合理，优雅关机 |
+| 原则 3：完整覆盖所有退出路径 | ✅ 所有退出都清理资源 |
+| 原则 4：解析失败不应该导致整体失败 | ✅ 有容错，单行失败不崩溃 |
+| 原则 5：开发和生产环境必须隔离 | ✅ 环境隔离，误连警告 |
+| 原则 6：错误处理要有重试和友好提示 | ✅ 重试机制，友好错误信息 |
 
-**代码只有全部通过以上检查才能合并到主分支。**
+**代码只有全部通过以上六大原则才能合并。**
 
 ---
 
-## 🚀 进阶优化（可选）
+## 🎓 精神总结
 
-### 1. 心跳机制
+### 防御性编程
+假设所有可能出错的地方都会出错：
+- 网络会断
+- 进程会崩溃
+- 输出格式会错
+- 用户会中断
 
-不用固定超时，改用心跳机制：
-- CLI 定期输出心跳信号
-- 超过 N 秒没收到心跳才判定超时
-- 这样复杂任务也不会被误杀
+### 资源必须清理
+每个退出路径都要清理资源：
+- 定时器
+- 事件监听器
+- 流和文件句柄
+- 子进程
+- 网络连接
 
-### 2. 动态超时
-
-根据任务复杂度动态调整超时：
-- 简单任务：短超时
-- 复杂任务：长超时
-- 可以基于输入长度、任务类型等判断
-
-### 3. 监控和指标
-
-收集执行指标：
-- 平均执行时间
-- 成功率
+### 可配置性
+让调用者能根据场景调整：
+- 超时时间
 - 重试次数
-- 资源使用情况
+- 环境配置
+- 日志级别
+
+### 环境隔离
+开发/生产必须从设计上分开：
+- 不同的数据库
+- 不同的缓存
+- 不同的端口
+- 不同的配置
+
+### 可观测性
+足够的日志和警告：
+- 清晰的错误信息
+- 解决建议
+- 调试信息
+- 环境警告
+
+### 容错性
+失败不应该导致整体崩溃：
+- 解析容错
+- 重试机制
+- 优雅降级
 
 ---
 
@@ -353,8 +380,7 @@ child.on('error', (err) => {
 
 - **课程来源**: [第二课：从玩具到生产 - CLI 工程化](./docs/lessons/02-cli-engineering.md)
 - **作业清单**: [第二课课后作业](./docs/lessons/02-homework.md)
-- **检查报告**: [02-homework-report.md](./docs/lessons/02-homework-report.md)
-- **修复实践**: [02-cli-engineering/](./02-cli-engineering/)
+- **实践案例**: [02-cli-engineering/](./02-cli-engineering/)
 
 ---
 
@@ -362,8 +388,9 @@ child.on('error', (err) => {
 
 | 日期 | 版本 | 变更内容 |
 |------|------|----------|
-| 2026-02-20 | 1.0 | 基于第二课课后作业创建代码开发标准 |
+| 2026-02-20 | 1.0 | 基于第二课课后作业创建（技术栈相关）|
+| 2026-02-20 | 2.0 | 重构为语言无关的核心原则 |
 
 ---
 
-*本标准由 cat-cafe-tutorials 项目维护，基于实际生产经验和最佳实践制定。*
+*本标准由 cat-cafe-tutorials 项目维护，基于实际生产经验提炼的核心原则，适用于任何语言和技术栈。*
