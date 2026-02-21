@@ -1,0 +1,17 @@
+{
+  "name": "05-mcp-callback",
+  "version": "1.0.0",
+  "description": "MCP Callback System - 让猫主动说话",
+  "type": "module",
+  "main": "callback-server.js",
+  "scripts": {
+    "start": "node callback-server.js",
+    "cat": "node run-cat.js"
+  },
+  "keywords": ["mcp", "callback", "claude"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  }
+}
